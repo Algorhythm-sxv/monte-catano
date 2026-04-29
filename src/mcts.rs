@@ -49,7 +49,7 @@ impl Mcts {
             root,
         }
     }
-    
+
     /// Expand a non-terminal leaf node, selecting a new untried action and returning the created child node
     fn expand(&mut self, node_ref: NodeRef) -> NodeRef {
         let mut node = self.arena[node_ref];
@@ -146,7 +146,7 @@ impl Mcts {
         // Selection: select children until a nonterminal leaf (untried action) is reached
         let mut node_ref = self.root;
         let mut node = &self.arena[node_ref];
-        while node.available_actions.is_empty() {
+        while node.available_actions.is_empty() && !node.state.is_terminal() {
             // randomly select a child from an end-turn node or initial end node
             if node.is_end_turn() || node.is_initial_final() {
                 let roll = self.game.roll_2d6();
@@ -180,7 +180,12 @@ impl Mcts {
         }
 
         // Expansion: select an untried child from the leaf and create the new node
-        let new = self.expand(node_ref);
+        let new = if !node.state.is_terminal() {
+            self.expand(node_ref)
+        } else {
+            // already terminal nodes can't have children
+            node_ref
+        };
 
         // Simulation: playout randomly until a terminal state is reached
         let winner = self

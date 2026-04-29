@@ -414,11 +414,17 @@ impl Node {
         parent: NodeRef,
         parent_action: Action,
     ) -> Self {
+        // don't generate actions for terminal nodes
+        let actions = if state.is_terminal() {
+            Actions::default()
+        } else {
+            state.generate_actions(board, parent_action)
+        };
         Self {
             state,
             visits: 0,
             wins: [0; 4],
-            available_actions: state.generate_actions(board, parent_action),
+            available_actions: actions,
             parent,
             parent_action,
             first_child: NodeRef::INVALID,
