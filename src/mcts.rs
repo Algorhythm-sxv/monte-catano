@@ -234,20 +234,20 @@ impl Mcts {
         }
     }
 
+    /// Select the best move from the root, detemined by the most visits
     pub fn best_move(&self) -> Action {
-        let root_player = self.game.current_state().player() as usize;
         let mut best_child = self.arena[self.root].first_child;
         let mut current_child = self.arena[best_child];
-        let mut best_wins = current_child.wins[root_player] as f32 / current_child.visits as f32;
+        let mut best_visits = current_child.visits;
         loop {
             let next = current_child.next_sibling;
             if !next.is_valid() {
                 break;
             }
             current_child = self.arena[next];
-            let current_wins = current_child.wins[root_player] as f32 / current_child.visits as f32;
-            if current_wins > best_wins {
-                best_wins = current_wins;
+            let current_visits = current_child.visits;
+            if current_visits > best_visits {
+                best_visits = current_visits;
                 best_child = next;
             }
         }
