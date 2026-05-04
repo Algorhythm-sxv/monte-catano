@@ -1,6 +1,9 @@
 use rand::{RngExt, SeedableRng, rngs::SmallRng};
 
-use crate::{game::*, graph::Action};
+use crate::{
+    game::*,
+    graph::{Action, Actions},
+};
 
 pub type GameRng = SmallRng;
 
@@ -109,7 +112,8 @@ impl Game {
         }
         while !state.is_terminal() {
             let mut actions = state.generate_actions(&self.board, last_action);
-            let action = actions.select_random_untried_action(&mut self.rng, last_action);
+            let action = self.select_best_of_n(&state, &actions, 5, last_action);
+            actions.remove(action);
             state.apply_action(&self.board, action, &mut self.rng);
             last_action = action;
             if action == Action::EndTurn {
@@ -134,5 +138,32 @@ impl Game {
                 .position(|p| p.vps >= 10)
                 .expect("no winner in terminal position") as u8,
         )
+    }
+
+    fn select_best_of_n(
+        &mut self,
+        state: &GameState,
+        actions: &Actions,
+        n: usize,
+        last_action: Action,
+    ) -> Action {
+        let mut temp = *actions;
+        let mut best_action = Action::NONE;
+        let mut best_score = 0;
+        for _ in 0..n {
+            let action = temp.select_random_untried_action(&mut self.rng, last_action);
+            let player = state.current_player;
+            let mut new_state = *state;
+            new_state.apply_action(&self.board, action, &mut self.rng);
+            let score = new_state.score_for(player);
+            if score > best_score {
+                best_score = score;
+                best_action = action;
+            }
+            if temp.is_empty() {
+                break;
+            }
+        }
+        best_action
     }
 }

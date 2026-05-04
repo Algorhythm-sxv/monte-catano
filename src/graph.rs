@@ -257,6 +257,28 @@ impl Actions {
             _ => unreachable!(),
         }
     }
+
+    pub fn remove(&mut self, action: Action) {
+        self.bitflags ^= 1
+            << match action {
+                Action::Settle(s) => Self::SETTLE_START + s,
+                Action::City(s) => Self::CITY_START + s,
+                Action::Road(s) => Self::ROAD_START + s,
+                Action::BuyDevCard(d) => Self::BUYS_START + d as u8,
+                Action::BankTrade(r1, r2) => Self::TRADES_START + 4 * r1 as u8 + r1.trade_index(r2),
+                Action::PlayDevCard(d) => Self::PLAYS_START + d as u8,
+                Action::RoadBuild1(s)
+                | Action::RoadBuild2(s)
+                | Action::InitialRoad(s)
+                | Action::InitialSettle(s)
+                | Action::MoveRobber(s) => s,
+                Action::YoPResources(r1, r2) => 5 * r1 as u8 + r2 as u8,
+                Action::MonopolyResource(r) => r as u8,
+                Action::Steal(p, _) => p,
+                Action::EndTurn => Self::ENDS_START,
+                Action::Roll(_) => unreachable!(),
+            };
+    }
 }
 
 impl From<u128> for Actions {

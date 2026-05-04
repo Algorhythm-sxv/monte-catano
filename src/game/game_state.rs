@@ -600,6 +600,15 @@ impl GameState {
     pub fn player(&self) -> u8 {
         self.current_player
     }
+
+    /// Heuristic score for move selection during playouts
+    pub fn score_for(&self, player: u8) -> u32 {
+        let mut score = 0;
+
+        score += 1000 * self.players[player as usize].vps as u32;
+
+        score
+    }
 }
 
 impl Default for GameState {
