@@ -155,7 +155,7 @@ impl Game {
             let player = state.current_player;
             let mut new_state = *state;
             new_state.apply_action(&self.board, action, &mut self.rng);
-            let score = new_state.score_for(player);
+            let score = new_state.score_for(&self.board, player);
             if score > best_score {
                 best_score = score;
                 best_action = action;

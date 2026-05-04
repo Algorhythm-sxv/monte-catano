@@ -602,10 +602,35 @@ impl GameState {
     }
 
     /// Heuristic score for move selection during playouts
-    pub fn score_for(&self, player: u8) -> u32 {
+    pub fn score_for(&self, board: &Board, player: u8) -> u32 {
         let mut score = 0;
 
-        score += 1000 * self.players[player as usize].vps as u32;
+        let p = self.players[player as usize];
+
+        // value VPs highly
+        score += 1000 * p.vps as u32;
+
+        // TODO: choose ports?
+
+        // choose settles based on production
+        let mut pips = 0;
+        let mut villages = p.villages;
+        while villages != 0 {
+            let v = villages.trailing_zeros() as usize;
+            for h in VERTEX_HEXES[v] {
+                pips += PIPS[*board.numbers.get(h).unwrap_or(&0) as usize];
+            }
+            villages &= villages - 1;
+        }
+        let mut cities = p.cities;
+        while cities != 0 {
+            let v = cities.trailing_zeros() as usize;
+            for h in VERTEX_HEXES[v] {
+                pips += 2 * PIPS[*board.numbers.get(h).unwrap_or(&0) as usize];
+            }
+            cities &= cities - 1;
+        }
+        score += pips as u32;
 
         score
     }

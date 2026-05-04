@@ -7,7 +7,7 @@ pub const NUM_PORTS: usize = 9;
 
 pub const NONE: usize = !0;
 
-// pub const PIPS: [u8; 13] = [0, 0, 1, 2, 3, 4, 5, 0, 5, 4, 3, 2, 1];
+pub const PIPS: [u8; 13] = [0, 0, 1, 2, 3, 4, 5, 0, 5, 4, 3, 2, 1];
 
 pub static PORT_VERTICES: [[usize; 2]; NUM_PORTS] = [
     [0, 1],
