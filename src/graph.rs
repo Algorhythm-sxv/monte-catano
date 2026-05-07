@@ -1,6 +1,9 @@
 use std::ops::{Index, IndexMut};
 
-use rand::RngExt;
+use rand::{
+    RngExt,
+    distr::{Distribution, weighted::WeightedIndex},
+};
 use serde::{Deserialize, Serialize};
 
 use crate::game::*;
@@ -356,6 +359,19 @@ impl Node {
         }
     }
 
+    pub fn buy_dev_card(state: GameState, parent: NodeRef) -> Self {
+        Self {
+            state,
+            visits: 0,
+            wins: [0; 4],
+            available_actions: Actions::default(),
+            parent,
+            parent_action: Action::BuyDevCard(Unknown),
+            first_child: NodeRef::INVALID,
+            next_sibling: NodeRef::INVALID,
+        }
+    }
+
     pub fn yop_resources(state: GameState, parent: NodeRef) -> Self {
         Self {
             state,
@@ -452,6 +468,25 @@ impl Node {
 
     pub fn is_initial_final(&self) -> bool {
         matches!(self.parent_action, Action::InitialRoad(_)) && !self.state.is_initial()
+    }
+
+    pub fn is_chance_node(&self) -> bool {
+        self.is_end_turn()
+            || self.is_initial_final()
+            || self.parent_action == Action::BuyDevCard(Unknown)
+    }
+
+    pub fn choose_child(&self, rng: &mut GameRng) -> NodeRef {
+        let first = self.first_child.0;
+        if self.is_end_turn() || self.is_initial_final() {
+            NodeRef(first + rng.random_range(0..6) + rng.random_range(0..6))
+        } else if self.parent_action == Action::BuyDevCard(Unknown) {
+            // TODO: this allocates, make a custom one that doesn't?
+            let dist = WeightedIndex::new(self.state.dev_card_deck).unwrap();
+            NodeRef(first + dist.sample(rng))
+        } else {
+            self.first_child
+        }
     }
 
     pub fn select_untried_action(&mut self, rng: &mut GameRng) -> Action {

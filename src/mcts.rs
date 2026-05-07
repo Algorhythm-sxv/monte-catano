@@ -59,17 +59,18 @@ impl Mcts {
         let mut new_state = node.state;
         new_state.apply_action(&self.board, action, self.game.rng());
 
+        let mut chance_node = NodeRef::INVALID;
         // the final initial road needs roll nodes afterwards
         let final_initial_road =
             matches!(action, Action::InitialRoad(_)) && !new_state.is_initial();
-        let mut road_node = NodeRef::INVALID;
         if final_initial_road {
-            road_node = self.arena.insert(
+            chance_node = self.arena.insert(
                 Node::initial_final(new_state, node_ref, action).with_sibling(node.first_child),
             );
-            self.create_roll_nodes(road_node, new_state);
-            node.first_child = road_node;
+            self.create_roll_nodes(chance_node, new_state);
+            node.first_child = chance_node;
         }
+
         // no children yet means we need to make the special node for end turn (outside of forced sequences)
         if !node.first_child.is_valid()
             && !new_state.is_initial()
@@ -80,6 +81,18 @@ impl Mcts {
             self.create_roll_nodes(end_node, new_state);
             node.first_child = end_node;
         }
+
+        // buying a dev card needs random nodes afterwards
+        if action == Action::BuyDevCard(Unknown) {
+            // don't use the applied state for the buy node, the children will have the correct states
+            chance_node = self
+                .arena
+                .insert(Node::buy_dev_card(node.state, node_ref).with_sibling(node.first_child));
+
+            self.create_card_nodes(chance_node, node.state);
+            node.first_child = chance_node;
+        }
+
         let new_node = match (action, final_initial_road) {
             // if the action taken was to end the turn, we need to move to the new state and not make another new child
             (Action::EndTurn, _) => {
@@ -91,13 +104,11 @@ impl Mcts {
                         end_node = self.arena[end_node].next_sibling;
                     }
                 }
-                let roll = self.game.roll_2d6();
-                NodeRef(self.arena[end_node].first_child.0 + roll - 2)
+                self.arena[end_node].choose_child(self.game.rng())
             }
-            // if this is a final initial road, we need to move to the new state and not make a new child
-            (Action::InitialRoad(_), true) => {
-                let roll = self.game.roll_2d6();
-                NodeRef(self.arena[road_node].first_child.0 + roll - 2)
+            // if this is a chance node, randomly select a child
+            (Action::BuyDevCard(Unknown), _) | (Action::InitialRoad(_), true) => {
+                self.arena[chance_node].choose_child(self.game.rng())
             }
             _ => {
                 // if we're trying something else, make a new child for it
@@ -141,16 +152,35 @@ impl Mcts {
         self.arena[parent].first_child = first_child;
     }
 
+    fn create_card_nodes(&mut self, parent: NodeRef, state: GameState) {
+        // create 5 children for the 5 types of dev cards
+        let mut first_child = NodeRef::INVALID;
+        for c in 0..5 {
+            let mut new_state = state;
+            let action = Action::BuyDevCard(DevCard::from(c as u8));
+            // only change the state if buying the dev card is possible
+            if state.dev_card_deck[c] > 0 {
+                new_state.apply_action(&self.board, action, self.game.rng());
+            }
+            let child =
+                self.arena
+                    .insert(Node::with_parent(new_state, &self.board, parent, action));
+            if !first_child.is_valid() {
+                first_child = child
+            }
+        }
+        self.arena[parent].first_child = first_child;
+    }
+
     /// Perform a single MCTS playout from the root
     pub fn playout(&mut self) -> Player {
         // Selection: select children until a nonterminal leaf (untried action) is reached
         let mut node_ref = self.root;
         let mut node = &self.arena[node_ref];
         while node.available_actions.is_empty() && !node.state.is_terminal() {
-            // randomly select a child from an end-turn node or initial end node
-            if node.is_end_turn() || node.is_initial_final() {
-                let roll = self.game.roll_2d6();
-                node_ref = NodeRef(node.first_child.0 + roll - 2);
+            // randomly select a child from chance nodes
+            if node.is_chance_node() {
+                node_ref = node.choose_child(self.game.rng());
                 node = &self.arena[node_ref];
                 continue;
             }

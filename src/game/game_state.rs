@@ -10,7 +10,7 @@ use crate::{
 pub struct GameState {
     pub(crate) players: [PlayerState; 4],
     pub(crate) current_player: u8,
-    dev_card_deck: [u8; 5],
+    pub(crate) dev_card_deck: [u8; 5],
     longest_road: (Player, u8),
     largest_army: (Player, u8),
     robber: u8,
