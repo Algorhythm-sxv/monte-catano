@@ -241,7 +241,7 @@ impl Mcts {
         while child.is_valid() {
             let node = self.arena[child];
             moves.push((
-                self.game.current_state().player(),
+                root_player,
                 node.parent_action,
                 node.wins[root_player],
                 node.visits,

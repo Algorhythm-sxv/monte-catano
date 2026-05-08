@@ -82,6 +82,7 @@ pub fn uci_loop() {
                             println!("info Error: invalid subcommand for 'position': {other}")
                         }
                     }
+                    todo!("make sure last action is also set");
                 }
                 // go (movetime <T_MS>, playouts <N>)
                 "go" if args.len() == 2 => match args[0] {
@@ -96,7 +97,7 @@ pub fn uci_loop() {
                     }
                     "playouts" => {
                         let Ok(playouts) = args[1].parse::<u64>() else {
-                            println!("info Error: invalid movetime: {}", args[1]);
+                            println!("info Error: invalid playout number: {}", args[1]);
                             continue;
                         };
 
@@ -135,6 +136,7 @@ pub fn uci_loop() {
 
 pub fn uci_go_thread(game: Game, movetime_ms: Option<u64>, playouts: Option<u64>) {
     let new = game.clone();
+    STOP_SEARCH.store(false, Ordering::Relaxed);
     let mcts = if let Some(movetime_ms) = movetime_ms {
         let start_time = Instant::now();
         let end_time = start_time + Duration::from_millis(movetime_ms);

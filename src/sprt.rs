@@ -118,11 +118,12 @@ pub fn sprt(exe: PathBuf, threads: u16, playouts: u64) {
     }
 
     let result = loop {
-        let result = rx.recv().unwrap();
-        state.record_game(result);
+        let (win, local_player) = rx.recv().unwrap();
+        state.record_game(win);
         let n = state.wins + state.losses;
         println!(
-            "Games: {n}, W/L: {}/{}, LLR: {:.2} [{:.2} {:.2}]",
+            "Games: {n}, {} as P{local_player}, W/L: {}/{}, LLR: {:.2} [{:.2} {:.2}]",
+            if win { "W" } else { "L" },
             state.wins,
             state.losses,
             state.llr(),
@@ -147,7 +148,7 @@ pub fn sprt(exe: PathBuf, threads: u16, playouts: u64) {
     }
 }
 
-fn sprt_worker(tx: Sender<bool>, exe: PathBuf, playouts: u64) {
+fn sprt_worker(tx: Sender<(bool, usize)>, exe: PathBuf, playouts: u64) {
     let mut opponent = Command::new(exe)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -164,50 +165,35 @@ fn sprt_worker(tx: Sender<bool>, exe: PathBuf, playouts: u64) {
             let seed = rand::rng().next_u64();
 
             // game 1, local is P0
-            let mut game = Game::new_random(2, seed);
+            let game = Game::new_random(2, seed);
             writeln!(opponent_stdin, "newgame players 2 seed {seed}")?;
             writeln!(opponent_stdin, "isready")?;
             opponent_stdout.read_line(&mut reply)?;
 
             let game_1 = run_game(
                 game.clone(),
+                0,
                 &mut opponent_stdin,
                 &mut opponent_stdout,
                 playouts,
             )?;
             let result = game_1.scores()[0] >= 10;
-            tx.send(result)?;
+            tx.send((result, 0))?;
 
             // game 2: local is P1
             writeln!(opponent_stdin, "newgame players 2 seed {seed}")?;
             writeln!(opponent_stdin, "isready")?;
             opponent_stdout.read_line(&mut reply)?;
 
-            // run the opponent's turn first
-            while game.current_state().current_player == 0 {
-                writeln!(
-                    opponent_stdin,
-                    "position {} state {}",
-                    game.board().cli_string(),
-                    ron::ser::to_string(game.current_state())?
-                )?;
-                writeln!(opponent_stdin, "isready")?;
-                opponent_stdout.read_line(&mut reply)?;
-                writeln!(opponent_stdin, "go playouts {playouts}")?;
-                reply.clear();
-                opponent_stdout.read_line(&mut reply)?;
-
-                let p1_best = reply.split(' ').nth(1).map(ron::de::from_str).unwrap()?;
-                game.apply_action(p1_best);
-            }
             let game_2 = run_game(
                 game.clone(),
+                1,
                 &mut opponent_stdin,
                 &mut opponent_stdout,
                 playouts,
             )?;
             let result = game_2.scores()[1] >= 10;
-            tx.send(result)?;
+            tx.send((result, 1))?;
         }
 
         writeln!(opponent_stdin, "quit")?;
@@ -220,20 +206,37 @@ fn sprt_worker(tx: Sender<bool>, exe: PathBuf, playouts: u64) {
 
 fn run_game(
     mut game: Game,
+    local_player: u8,
     opponent_stdin: &mut ChildStdin,
     opponent_stdout: &mut BufReader<ChildStdout>,
     playouts: u64,
 ) -> anyhow::Result<Game> {
     let mut reply = String::new();
     'game: while !game.is_terminal() {
-        // P0 turn
-        while game.current_state().current_player == 0 {
+        // roll if necessary
+        if !game.current_state().is_initial() {
+            let roll = game.roll_2d6() as u8;
+            let determined = game.apply_action(Action::Roll(roll));
+            writeln!(
+                opponent_stdin,
+                "apply {}",
+                ron::ser::to_string(&determined)?
+            )?;
+            opponent_stdout.read_line(&mut reply)?;
+        }
+        while game.current_state().current_player == local_player {
             let mut mcts = Mcts::new(game.clone());
             for _ in 0..playouts {
                 mcts.playout();
             }
             let p0_best = mcts.best_move();
-            game.apply_action(p0_best);
+            let determined = game.apply_action(p0_best);
+            writeln!(
+                opponent_stdin,
+                "apply {}",
+                ron::ser::to_string(&determined)?
+            )?;
+            opponent_stdout.read_line(&mut reply)?;
 
             if game.is_terminal() {
                 break 'game;
@@ -243,17 +246,21 @@ fn run_game(
         // roll if necessary
         if !game.current_state().is_initial() {
             let roll = game.roll_2d6() as u8;
-            game.apply_action(Action::Roll(roll));
-        }
-
-        // P1 turn
-        while game.current_state().current_player == 1 {
+            let determined = game.apply_action(Action::Roll(roll));
             writeln!(
                 opponent_stdin,
-                "position {} state {}",
-                game.board().cli_string(),
-                ron::ser::to_string(game.current_state())?
+                "apply {}",
+                ron::ser::to_string(&determined)?
             )?;
+            opponent_stdout.read_line(&mut reply)?;
+        }
+        while game.current_state().current_player != local_player {
+            // writeln!(
+            //     opponent_stdin,
+            //     "position {} state {}",
+            //     game.board().cli_string(),
+            //     ron::ser::to_string(game.current_state())?
+            // )?;
             writeln!(opponent_stdin, "isready")?;
             opponent_stdout.read_line(&mut reply)?;
             writeln!(opponent_stdin, "go playouts {playouts}")?;
@@ -261,17 +268,17 @@ fn run_game(
             opponent_stdout.read_line(&mut reply)?;
 
             let p1_best = reply.split(' ').nth(1).map(ron::de::from_str).unwrap()?;
-            game.apply_action(p1_best);
+            let determined = game.apply_action(p1_best);
+            writeln!(
+                opponent_stdin,
+                "apply {}",
+                ron::ser::to_string(&determined)?
+            )?;
+            opponent_stdout.read_line(&mut reply)?;
 
             if game.is_terminal() {
                 break 'game;
             }
-        }
-
-        // roll if necessary
-        if !game.current_state().is_initial() {
-            let roll = game.roll_2d6() as u8;
-            game.apply_action(Action::Roll(roll));
         }
     }
     Ok(game)
