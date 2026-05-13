@@ -28,5 +28,15 @@ pub enum Commands {
         /// Number of playouts to run for each move during a game
         #[arg(short, long, default_value_t = 100, value_parser = clap::value_parser!(u64).range(1..))]
         playouts: u64,
+        /// Initial number of won games (use to resume a previous incomplete test)
+        #[arg(short, long, default_value_t = 0)]
+        init_wins: u64,
+        /// Initial number of lost games (use to resume a previous incomplete test)
+        #[arg(short, long, default_value_t = 0)]
+        init_losses: u64,
+    },
+    /// Test the move selection heuristic against a baseline
+    HTest {
+        seed: u64
     },
 }

@@ -23,8 +23,9 @@ struct SprtConfig {
 
 struct SprtState {
     config: SprtConfig,
-    wins: u64,
-    losses: u64,
+    init_wins: u64,
+    init_losses: u64,
+    quadranomial: [u64; 4],
 }
 
 enum SprtResult {
@@ -39,13 +40,16 @@ impl SprtState {
     }
 
     fn llr(&self) -> f64 {
-        let n = self.wins + self.losses;
+        let n = self.quadranomial.iter().sum::<u64>() * 2 + self.init_wins + self.init_losses; // each unit in the trinomial represents 2 games
         if n == 0 {
             return 0.0;
         }
 
+        let wins =
+            2 * self.quadranomial[3] + self.quadranomial[2] + self.quadranomial[1] + self.init_wins;
+
         // Generalized LLR: model the data as normally distributed and calculate LLR from observed mean and variance
-        let sample_mean = self.wins as f64 / n as f64;
+        let sample_mean = wins as f64 / n as f64;
         let variance = sample_mean * (1.0 - sample_mean); // Bernoulli variance with no draws
 
         if variance <= f64::EPSILON {
@@ -80,16 +84,17 @@ impl SprtState {
         (self.config.beta / (1.0 - self.config.alpha)).ln()
     }
 
-    fn record_game(&mut self, win: bool) {
-        if win {
-            self.wins += 1;
-        } else {
-            self.losses += 1;
-        }
+    fn record_game_pair(&mut self, wins: (bool, bool)) {
+        self.quadranomial[match wins {
+            (true, true) => 3,
+            (false, true) => 2,
+            (true, false) => 1,
+            (false, false) => 0,
+        }] += 1;
     }
 }
 
-pub fn sprt(exe: PathBuf, threads: u16, playouts: u64) {
+pub fn sprt(exe: PathBuf, threads: u16, playouts: u64, init_wins: u64, init_losses: u64) {
     let config = SprtConfig {
         elo0: 0.0,
         elo1: 10.0,
@@ -98,8 +103,9 @@ pub fn sprt(exe: PathBuf, threads: u16, playouts: u64) {
     };
     let mut state = SprtState {
         config,
-        wins: 0,
-        losses: 0,
+        init_wins,
+        init_losses,
+        quadranomial: [0; 4],
     };
 
     let (tx, rx) = channel();
@@ -118,14 +124,20 @@ pub fn sprt(exe: PathBuf, threads: u16, playouts: u64) {
     }
 
     let result = loop {
-        let (win, local_player) = rx.recv().unwrap();
-        state.record_game(win);
-        let n = state.wins + state.losses;
+        let wins = rx.recv().unwrap();
+        state.record_game_pair(wins);
+        let n = 2 * state.quadranomial.iter().sum::<u64>() + state.init_wins + state.init_losses;
         println!(
-            "Games: {n}, {} as P{local_player}, W/L: {}/{}, LLR: {:.2} [{:.2} {:.2}]",
-            if win { "W" } else { "L" },
-            state.wins,
-            state.losses,
+            "Games: {n}, W/L: {}/{}, Quad: {:?}, LLR: {:.2} [{:.2} {:.2}]",
+            2 * state.quadranomial[3]
+                + state.quadranomial[2]
+                + state.quadranomial[1]
+                + state.init_wins,
+            2 * state.quadranomial[0]
+                + state.quadranomial[1]
+                + state.quadranomial[2]
+                + state.init_losses,
+            state.quadranomial,
             state.llr(),
             state.upper_llr_threshold(),
             state.lower_llr_threshold(),
@@ -148,7 +160,7 @@ pub fn sprt(exe: PathBuf, threads: u16, playouts: u64) {
     }
 }
 
-fn sprt_worker(tx: Sender<(bool, usize)>, exe: PathBuf, playouts: u64) {
+fn sprt_worker(tx: Sender<(bool, bool)>, exe: PathBuf, playouts: u64) {
     let mut opponent = Command::new(exe)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -177,8 +189,7 @@ fn sprt_worker(tx: Sender<(bool, usize)>, exe: PathBuf, playouts: u64) {
                 &mut opponent_stdout,
                 playouts,
             )?;
-            let result = game_1.scores()[0] >= 10;
-            tx.send((result, 0))?;
+            let result1 = game_1.scores()[0] >= 10;
 
             // game 2: local is P1
             writeln!(opponent_stdin, "newgame players 2 seed {seed}")?;
@@ -192,8 +203,8 @@ fn sprt_worker(tx: Sender<(bool, usize)>, exe: PathBuf, playouts: u64) {
                 &mut opponent_stdout,
                 playouts,
             )?;
-            let result = game_2.scores()[1] >= 10;
-            tx.send((result, 1))?;
+            let result2 = game_2.scores()[1] >= 10;
+            tx.send((result1, result2))?;
         }
 
         writeln!(opponent_stdin, "quit")?;

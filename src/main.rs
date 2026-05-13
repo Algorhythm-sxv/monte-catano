@@ -34,7 +34,7 @@ fn main() {
                 let new = game.clone();
                 let search = thread::spawn(move || search_thread(new));
                 let mut prev_playouts = 0;
-                
+
                 for _ in 0..5 {
                     thread::sleep(Duration::from_secs(1));
                     let playouts = PLAYOUTS.load(Ordering::Relaxed);
@@ -73,12 +73,19 @@ fn main() {
 
             println!("{:?}", game.scores());
         }
-        
+
         Some(Commands::Sprt {
             exe,
             threads,
             playouts,
-        }) => sprt(exe, threads, playouts),
+            init_wins,
+            init_losses,
+        }) => sprt(exe, threads, playouts, init_wins, init_losses),
+
+        Some(Commands::HTest { seed }) => {
+            let mut game = Game::new_random(2, seed);
+            game.heuristic_test();
+        }
 
         _ => uci_loop(),
     }
