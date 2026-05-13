@@ -97,12 +97,13 @@ impl GameState {
         }
         p.roads_left -= 1;
 
-        if 15 - self.players[player].roads_left > self.longest_road.1 {
+        p.calculate_longest_road(edge);
+        if p.longest_road > self.longest_road.1 {
             if self.longest_road.0 != Player::PNone {
                 self.players[self.longest_road.0].vps -= 2;
             }
             self.players[player].vps += 2;
-            self.longest_road = (player, 15 - self.players[player].roads_left)
+            self.longest_road = (player, self.players[player].longest_road);
         }
     }
 
@@ -642,7 +643,7 @@ impl Default for GameState {
             players: [Default::default(); 4],
             current_player: Default::default(),
             dev_card_deck: [14, 2, 2, 2, 5],
-            longest_road: Default::default(),
+            longest_road: (PNone, 4),
             largest_army: Default::default(),
             robber: u8::MAX,
         }
