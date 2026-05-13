@@ -1,4 +1,5 @@
 pub const UCT_C: f64 = 1.41424356237;
+pub const BEST_OF_N: usize = 5;
 
 pub const NUM_HEXES: usize = 19;
 pub const NUM_VERTICES: usize = 54;
@@ -415,6 +416,18 @@ mod tests {
                     .take_while(|&&h| h != NONE)
                     .all(|a| HEX_HEXES[*a].contains(&h)),
                 "adjacency mismatch at hex {h}: {hs:?}"
+            )
+        });
+    }
+
+    #[test]
+    fn verify_edge_adjacency() {
+        EDGE_EDGES.iter().enumerate().for_each(|(e, es)| {
+            assert!(
+                es.iter()
+                    .take_while(|&&e| e != NONE)
+                    .all(|a| EDGE_EDGES[*a].contains(&e)),
+                "adjacency mismatch at edge {e}: {es:?}"
             )
         });
     }

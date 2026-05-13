@@ -140,6 +140,83 @@ impl Game {
         )
     }
 
+    pub fn heuristic_test(&mut self) {
+        let mut wins = [0u32, 0, 0, 0];
+        for _ in 0..1000 {
+            let mut state = self.state;
+            let mut last_action = self.last_action();
+            let heuristic_player = self.rng.random_range(0..=1);
+
+            if state.is_initial() {
+                while state.is_initial() {
+                    let mut actions = if state.is_initial_settle() {
+                        state.generate_initial_settles()
+                    } else {
+                        state.generate_initial_roads()
+                    };
+                    let action = if state.current_player == heuristic_player {
+                        self.select_best_of_n(&state, &actions, BEST_OF_N, last_action)
+                    } else {
+                        actions.select_random_untried_initial_action(
+                            &mut self.rng,
+                            state.is_initial_settle(),
+                        )
+                    };
+                    state.apply_action(&self.board, action, &mut self.rng);
+                    last_action = action;
+                }
+                // first roll
+                let roll = self.roll_2d6();
+                state.apply_action(&self.board, Action::Roll(roll as u8), &mut self.rng);
+                if roll == 7 {
+                    last_action = Action::Roll(7);
+                }
+                debug_assert!(state.current_player == 0);
+            }
+            while !state.is_terminal() {
+                let mut actions = state.generate_actions(&self.board, last_action);
+                let action = if state.current_player == heuristic_player {
+                    self.select_best_of_n(&state, &actions, BEST_OF_N, last_action)
+                } else {
+                    actions.select_random_untried_action(&mut self.rng, last_action)
+                };
+                state.apply_action(&self.board, action, &mut self.rng);
+                last_action = action;
+                if action == Action::EndTurn {
+                    let roll = self.rng.random_range(1..=6) + self.rng.random_range(1..=6);
+                    state.apply_action(&self.board, Action::Roll(roll as u8), &mut self.rng);
+                    if roll == 7 {
+                        let mut robbers = state.generate_robber_moves();
+                        let robber = robbers.select_random_untried_robber_action(&mut self.rng);
+                        state.apply_action(&self.board, robber, &mut self.rng);
+                        if let Action::MoveRobber(spot) = robber {
+                            let mut steals = state.generate_steals(spot);
+                            let steal = steals.select_random_untried_steal_action(&mut self.rng);
+                            state.apply_action(&self.board, steal, &mut self.rng);
+                        }
+                    }
+                }
+            }
+            let winner = state
+                .players
+                .iter()
+                .position(|p| p.vps >= 10)
+                .expect("no winner in terminal position");
+
+            wins[2 * (winner != heuristic_player as usize) as usize + winner] += 1;
+        }
+        let h_wins = wins[0] as f32 + wins[1] as f32;
+        let total = wins.iter().sum::<u32>() as f32;
+        let h_p0_wins = wins[0] as f32;
+        let h_p1_wins = wins[1] as f32;
+        println!(
+            "Heuristic win rate: {:.1}%, as P0: {:.1}%, as P1: {:.1}%",
+            100.0 * h_wins / total,
+            100.0 * h_p0_wins / h_wins,
+            100.0 * h_p1_wins / h_wins
+        );
+    }
+
     fn select_best_of_n(
         &mut self,
         state: &GameState,
@@ -151,7 +228,11 @@ impl Game {
         let mut best_action = Action::NONE;
         let mut best_score = 0;
         for _ in 0..n {
-            let action = temp.select_random_untried_action(&mut self.rng, last_action);
+            let action = if state.is_initial() {
+                temp.select_random_untried_initial_action(&mut self.rng, state.is_initial_settle())
+            } else {
+                temp.select_random_untried_action(&mut self.rng, last_action)
+            };
             let player = state.current_player;
             let mut new_state = *state;
             new_state.apply_action(&self.board, action, &mut self.rng);
