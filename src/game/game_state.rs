@@ -462,7 +462,6 @@ impl GameState {
                         let mut card = Unknown;
                         for (i, c) in self.dev_card_deck.iter().enumerate() {
                             if *c > card_index {
-                                self.dev_card_deck[i] -= 1;
                                 card = DevCard::from(i as u8);
                                 break;
                             }
@@ -472,6 +471,7 @@ impl GameState {
                     }
                     _ => card,
                 };
+                self.dev_card_deck[card as usize] -= 1;
                 self.players[player].dev_cards[card as usize] += 1;
                 self.players[player].bought_dev_cards[card as usize] += 1;
                 if card == DevCard::VP {
@@ -508,6 +508,7 @@ impl GameState {
             }
             Action::PlayDevCard(dev_card) => {
                 self.players[player].dev_cards[dev_card as usize] -= 1;
+                self.players[player].played_dev_card = true;
                 match dev_card {
                     Knight => {
                         self.players[player].knights_played += 1;
@@ -527,6 +528,7 @@ impl GameState {
             }
             Action::EndTurn => {
                 self.players[player].bought_dev_cards = [0; 5];
+                self.players[player].played_dev_card = false;
                 self.current_player = (self.current_player + 1) % board.num_players;
                 action
             }

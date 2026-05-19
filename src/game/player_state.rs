@@ -11,6 +11,7 @@ pub struct PlayerState {
     pub(crate) resources: [u8; 5],
     pub(crate) dev_cards: [u8; 5],
     pub(crate) bought_dev_cards: [u8; 5],
+    pub(crate) played_dev_card: bool,
     pub(crate) knights_played: u8,
     pub(crate) longest_road: u8,
     pub(crate) vps: u8,
@@ -49,6 +50,10 @@ impl PlayerState {
             && self.resources[Sheep as usize] > 0
     }
     pub fn can_play_dev_card(&self) -> bool {
+        // can only play 1 dev card per turn
+        if self.played_dev_card {
+            return false;
+        }
         // VPs aren't playable -> take(4)
         for (i, c) in self.bought_dev_cards.iter().take(4).enumerate() {
             if self.dev_cards[i] > *c {
@@ -136,6 +141,7 @@ impl Default for PlayerState {
             resources: [4, 4, 0, 2, 2], // fake resources for the starting settlements/roads
             dev_cards: Default::default(),
             bought_dev_cards: [0; 5],
+            played_dev_card: false,
             knights_played: Default::default(),
             longest_road: 1,
             vps: Default::default(),
