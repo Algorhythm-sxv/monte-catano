@@ -1,5 +1,5 @@
 pub const UCT_C: f64 = 1.41424356237;
-pub const BEST_OF_N: usize = 5;
+pub const BEST_OF_N: usize = 10;
 
 pub const NUM_HEXES: usize = 19;
 pub const NUM_VERTICES: usize = 54;
