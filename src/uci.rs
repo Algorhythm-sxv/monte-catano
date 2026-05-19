@@ -123,6 +123,15 @@ pub fn uci_loop() {
                     let determined = game.apply_action(action);
                     println!("determined {}", ron::ser::to_string(&determined).unwrap());
                 }
+                // print
+                "print" => {
+                    let last_action = game.last_action();
+                    println!(
+                        "last {} state {}",
+                        ron::ser::to_string(&last_action).unwrap(),
+                        ron::ser::to_string(game.current_state()).unwrap()
+                    );
+                }
                 // quit
                 "quit" => {
                     STOP_SEARCH.store(true, Ordering::Relaxed);

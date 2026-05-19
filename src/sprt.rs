@@ -287,6 +287,28 @@ fn run_game(
             )?;
             opponent_stdout.read_line(&mut reply)?;
 
+            // verify state is the same
+            #[cfg(debug_assertions)]
+            {
+                writeln!(opponent_stdin, "print")?;
+                reply.clear();
+                opponent_stdout.read_line(&mut reply)?;
+
+                let parts = reply.trim().split(' ').collect::<Vec<_>>();
+                debug_assert!(
+                    parts[1] == ron::ser::to_string(&game.last_action())?,
+                    "Action mismatch after {determined:?}: {} != {:?}",
+                    parts[1],
+                    game.last_action()
+                );
+                debug_assert!(
+                    parts[3] == ron::ser::to_string(game.current_state())?,
+                    "State mismatch after {determined:?}:\n{}\n!=\n{}",
+                    parts[3],
+                    ron::ser::to_string(game.current_state())?
+                );
+            }
+
             if game.is_terminal() {
                 break 'game;
             }
