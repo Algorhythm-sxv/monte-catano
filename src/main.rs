@@ -5,7 +5,6 @@ use clap::Parser;
 use crate::{
     cli::{Args, Commands},
     game::Game,
-    graph::Action,
     signals::*,
     sprt::sprt,
     uci::{search_thread, uci_loop},
@@ -52,23 +51,8 @@ fn main() {
                 let best_move = mcts.best_move();
 
                 let determined_action = game.apply_action(best_move);
-                let possible_roll = if determined_action == Action::EndTurn {
-                    let roll = game.roll_2d6();
-                    game.apply_action(Action::Roll(roll as u8));
-                    Some(Action::Roll(roll as u8))
-                } else {
-                    None
-                };
 
-                println!(
-                    "{:?} -> {:?}\n",
-                    best_move,
-                    if let Some(r) = possible_roll {
-                        r
-                    } else {
-                        determined_action
-                    }
-                );
+                println!("{:?} -> {:?}\n", best_move, determined_action);
             }
 
             println!("{:?}", game.scores());

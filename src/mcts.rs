@@ -38,7 +38,11 @@ impl Mcts {
             Some(Action::RoadBuild2(_)) => {
                 arena.insert(Node::road_build_2(*game.current_state(), NodeRef::INVALID))
             }
-            _ => arena.insert(Node::root(*game.current_state(), game.board())),
+            _ => arena.insert(Node::root(
+                *game.current_state(),
+                game.board(),
+                game.last_action(),
+            )),
         };
 
         let board = *game.board();
@@ -71,17 +75,6 @@ impl Mcts {
             node.first_child = chance_node;
         }
 
-        // no children yet means we need to make the special node for end turn (outside of forced sequences)
-        if !node.first_child.is_valid()
-            && !new_state.is_initial()
-            && !node.parent_action.has_forced_continuation()
-        {
-            // after ending the turn the next player's only available action is to roll the dice, so we can automatically expand these nodes
-            let end_node = self.arena.insert(Node::end_turn(new_state, node_ref));
-            self.create_roll_nodes(end_node, new_state);
-            node.first_child = end_node;
-        }
-
         // buying a dev card needs random nodes afterwards
         if action == Action::BuyDevCard(Unknown) {
             // don't use the applied state for the buy node, the children will have the correct states
@@ -93,21 +86,16 @@ impl Mcts {
             node.first_child = chance_node;
         }
 
+        // rolling the dice needs roll nodes afterwards
+        if action == Action::Roll(0) {
+            chance_node = self.arena.insert(Node::roll(new_state, node_ref));
+            self.create_roll_nodes(chance_node, new_state);
+            node.first_child = chance_node;
+        }
+
         let new_node = match (action, final_initial_road) {
-            // if the action taken was to end the turn, we need to move to the new state and not make another new child
-            (Action::EndTurn, _) => {
-                let mut end_node = node.first_child;
-                loop {
-                    if self.arena[end_node].is_end_turn() {
-                        break;
-                    } else {
-                        end_node = self.arena[end_node].next_sibling;
-                    }
-                }
-                self.arena[end_node].choose_child(self.game.rng())
-            }
             // if this is a chance node, randomly select a child
-            (Action::BuyDevCard(Unknown), _) | (Action::InitialRoad(_), true) => {
+            (Action::BuyDevCard(Unknown) | Action::Roll(0), _) | (Action::InitialRoad(_), true) => {
                 self.arena[chance_node].choose_child(self.game.rng())
             }
             _ => {

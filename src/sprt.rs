@@ -39,14 +39,17 @@ impl SprtState {
         1.0 / (1.0 + 10f64.powf(-elo_diff / 400.0))
     }
 
+    fn win_probability_to_elo_diff(p: f64) -> f64 {
+        -400.0 * (1.0 / p - 1.0).log10()
+    }
+
     fn llr(&self) -> f64 {
-        let n = self.quadranomial.iter().sum::<u64>() * 2 + self.init_wins + self.init_losses; // each unit in the trinomial represents 2 games
+        let n = self.total_games();
         if n == 0 {
             return 0.0;
         }
 
-        let wins =
-            2 * self.quadranomial[3] + self.quadranomial[2] + self.quadranomial[1] + self.init_wins;
+        let wins = self.wins();
 
         // Generalized LLR: model the data as normally distributed and calculate LLR from observed mean and variance
         let sample_mean = wins as f64 / n as f64;
@@ -92,6 +95,52 @@ impl SprtState {
             (false, false) => 0,
         }] += 1;
     }
+
+    pub fn total_games(&self) -> u64 {
+        self.quadranomial.iter().sum::<u64>() * 2 + self.init_wins + self.init_losses // each unit in the quadranomial represents 2 games
+    }
+
+    pub fn wins(&self) -> u64 {
+        2 * self.quadranomial[3] + self.quadranomial[2] + self.quadranomial[1] + self.init_wins
+    }
+
+    pub fn elo_diff(&self) -> f64 {
+        let n = self.total_games();
+        let wins = self.wins();
+        let percent = wins as f64 / n as f64;
+        Self::win_probability_to_elo_diff(percent)
+    }
+
+    pub fn elo_margin(&self) -> f64 {
+        let n = self.total_games();
+        let p_win = self.wins() as f64 / n as f64;
+        let p_loss = 1.0 - p_win;
+
+        let d_win = p_win * (1.0 - p_win).powi(2);
+        let d_loss = p_loss * (0.0 - p_win).powi(2);
+        let std_dev = (d_win + d_loss).sqrt() / (n as f64).sqrt();
+
+        let confidence = 0.95;
+        let min_confidence = (1.0 - confidence) / 2.0;
+        let max_confidence = 1.0 - min_confidence;
+        let dev_min = p_win + phi_inv(min_confidence) * std_dev;
+        let dev_max = p_win + phi_inv(max_confidence) * std_dev;
+
+        let diff =
+            Self::win_probability_to_elo_diff(dev_max) - Self::win_probability_to_elo_diff(dev_min);
+        diff / 2.0
+    }
+}
+
+fn phi_inv(n: f64) -> f64 {
+    let x = 2.0 * n - 1.0;
+    let pi = std::f64::consts::PI;
+    let a = 8.0 * (pi - 3.0) / (3.0 * pi * (4.0 - pi));
+    let y = (1.0 - x * x).ln();
+    let z = 2.0 / (pi * a) + y / 2.0;
+    let erfi = x.signum() * ((z * z - y / a).sqrt() - z).sqrt();
+
+    2f64.sqrt() * erfi
 }
 
 pub fn sprt(exe: PathBuf, threads: u16, playouts: u64, init_wins: u64, init_losses: u64) {
@@ -128,7 +177,7 @@ pub fn sprt(exe: PathBuf, threads: u16, playouts: u64, init_wins: u64, init_loss
         state.record_game_pair(wins);
         let n = 2 * state.quadranomial.iter().sum::<u64>() + state.init_wins + state.init_losses;
         println!(
-            "Games: {n}, W/L: {}/{}, Quad: {:?}, LLR: {:.2} [{:.2} {:.2}]",
+            "Games: {n}, W/L: {}/{}, Elo: {:+.1} +/- {:.1}, Quad: {:?}, LLR: {:.2} [{:.2} {:.2}]",
             2 * state.quadranomial[3]
                 + state.quadranomial[2]
                 + state.quadranomial[1]
@@ -137,6 +186,8 @@ pub fn sprt(exe: PathBuf, threads: u16, playouts: u64, init_wins: u64, init_loss
                 + state.quadranomial[1]
                 + state.quadranomial[2]
                 + state.init_losses,
+            state.elo_diff(),
+            state.elo_margin(),
             state.quadranomial,
             state.llr(),
             state.upper_llr_threshold(),

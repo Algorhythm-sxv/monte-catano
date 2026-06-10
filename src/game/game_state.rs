@@ -162,8 +162,25 @@ impl GameState {
             Some(Action::YoPResources(_, _)) => self.generate_yop_resources(),
             Some(Action::MonopolyResource(_)) => self.generate_monopoly_resources(),
             Some(Action::RoadBuild1(_) | Action::RoadBuild2(_)) => self.generate_road_builds(),
+            Some(Action::EndTurn) => self.generate_end_turn_actions(),
             _ => self.generate_actions_normal(board),
         }
+    }
+
+    pub fn generate_end_turn_actions(&self) -> Actions {
+        // player can opt to play a dev card before rolling the dice, set a bit for each playable dev card type
+        let dev_cards = if !self.current_player().played_dev_card {
+            self.current_player()
+                .dev_cards
+                .iter()
+                .take(4)
+                .enumerate()
+                .fold(0, |a, (i, c)| if *c > 0 { a | 1 << i } else { a })
+        } else {
+            0
+        };
+        // add a bit for rolling the dice
+        Actions::from(dev_cards as u128 | 1 << 5)
     }
 
     pub fn generate_robber_moves(&self) -> Actions {
@@ -221,10 +238,16 @@ impl GameState {
                 self.generate_initial_roads()
             };
         }
+
         let mut actions = Actions::default();
 
         let player = Player::from(self.current_player);
         let player_state = self.current_player();
+
+        // not initial but not rolled yet for the turn
+        if !player_state.rolled {
+            return self.generate_end_turn_actions();
+        }
         // settles
         if player_state.can_settle() {
             let settle_spots = (0..NUM_VERTICES).filter(|v| {
@@ -529,16 +552,21 @@ impl GameState {
             Action::EndTurn => {
                 self.players[player].bought_dev_cards = [0; 5];
                 self.players[player].played_dev_card = false;
+                self.players[player].rolled = false;
                 self.current_player = (self.current_player + 1) % board.num_players;
                 action
             }
-            Action::Roll(n) => {
+            Action::Roll(mut n) => {
+                if n == 0 {
+                    n = rng.random_range(1..=6) + rng.random_range(1..=6);
+                }
                 if n != 7 {
                     self.roll_resources(board, n as usize);
                 } else {
                     self.discard_excess();
                 }
-                action
+                self.current_player_mut().rolled = true;
+                Action::Roll(n)
             }
             Action::YoPResources(res1, res2) => {
                 let p = self.current_player_mut();

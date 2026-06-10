@@ -49,11 +49,6 @@ pub enum Action {
 impl Action {
     pub const NONE: Self = Self::Settle(255);
 
-    /// Whether an action must be followed by another type of action e.g. `Roll(7) -> MoveRobber(_)`
-    pub fn has_forced_continuation(&self) -> bool {
-        self.forced_continuation().is_some()
-    }
-
     /// What is the forced continuation to this action? e.g. `Roll(7) -> MoveRobber(_)
     pub fn forced_continuation(&self) -> Option<Self> {
         match *self {
@@ -63,6 +58,8 @@ impl Action {
             Self::PlayDevCard(Monopoly) => Some(Self::MonopolyResource(Desert)),
             Self::PlayDevCard(RoadBuild) => Some(Self::RoadBuild1(0)),
             Self::RoadBuild1(_) => Some(Self::RoadBuild2(0)),
+            // end turn isn't forced, but normal options aren't available
+            Self::EndTurn => Some(Action::EndTurn),
             _ => None,
         }
     }
@@ -180,6 +177,7 @@ impl Actions {
             Some(road_build @ (Action::RoadBuild1(_) | Action::RoadBuild2(_))) => {
                 self.select_random_untried_road_build(road_build, rng)
             }
+            Some(Action::EndTurn) => self.select_random_untried_end_turn_action(rng),
             _ => self.select_random_untried_normal_action(rng),
         }
     }
@@ -236,6 +234,15 @@ impl Actions {
         }
     }
 
+    pub fn select_random_untried_end_turn_action(&mut self, rng: &mut GameRng) -> Action {
+        let chosen_bit = self.choose_random_bit(rng);
+        if chosen_bit <= 4 {
+            Action::PlayDevCard(DevCard::from(chosen_bit))
+        } else {
+            Action::Roll(0)
+        }
+    }
+
     pub fn select_random_untried_normal_action(&mut self, rng: &mut GameRng) -> Action {
         let chosen_bit = self.choose_random_bit(rng);
         match chosen_bit {
@@ -276,6 +283,7 @@ impl Actions {
                 Action::MonopolyResource(r) => r as u8,
                 Action::Steal(p, _) => p,
                 Action::EndTurn => Self::ENDS_START,
+                Action::Roll(0) => 5, // Roll(0) is an undetermined dice roll
                 Action::Roll(_) => unreachable!(),
             };
     }
@@ -293,13 +301,13 @@ pub struct NodeRef(pub usize);
 impl NodeRef {
     /// 'Null pointer' substitute
     pub const INVALID: Self = Self(usize::MAX);
-    /// Marker value to identify nodes where the parent action was [Action::EndTurn]
-    pub const END_TURN: Self = Self(Self::INVALID.0 - 1);
+    /// Marker value to identify nodes where the dice are rolled
+    pub const ROLL: Self = Self(Self::INVALID.0 - 1);
     /// Marker value to identify nodes where the available moves are robber moves
-    pub const ROBBER: Self = Self(Self::END_TURN.0 - 1);
+    pub const ROBBER: Self = Self(Self::ROLL.0 - 1);
 
     pub fn is_valid(&self) -> bool {
-        *self != Self::INVALID && *self != Self::END_TURN && *self != Self::ROBBER
+        *self != Self::INVALID && *self != Self::ROLL && *self != Self::ROBBER
     }
 }
 
@@ -325,20 +333,20 @@ pub struct Node {
     pub next_sibling: NodeRef,
 }
 impl Node {
-    pub fn root(state: GameState, board: &Board) -> Self {
-        Self::with_parent(state, board, NodeRef::INVALID, Action::NONE).with_sibling(NodeRef(0))
+    pub fn root(state: GameState, board: &Board, last_action: Action) -> Self {
+        Self::with_parent(state, board, NodeRef::INVALID, last_action).with_sibling(NodeRef(0))
     }
 
-    pub fn end_turn(state: GameState, parent: NodeRef) -> Self {
+    pub fn roll(state: GameState, parent: NodeRef) -> Self {
         Self {
             state,
             visits: 0,
             wins: [0; 4],
             available_actions: Actions::default(),
             parent,
-            parent_action: Action::EndTurn,
+            parent_action: Action::Roll(0),
             first_child: NodeRef::INVALID,
-            next_sibling: NodeRef::END_TURN,
+            next_sibling: NodeRef::INVALID,
         }
     }
 
@@ -484,8 +492,8 @@ impl Node {
             + consts::UCT_C * ((parent_visits as f64).ln() / self.visits as f64).sqrt()
     }
 
-    pub fn is_end_turn(&self) -> bool {
-        self.next_sibling == NodeRef::END_TURN
+    pub fn is_roll(&self) -> bool {
+        self.next_sibling == NodeRef::ROLL
     }
 
     pub fn is_initial_final(&self) -> bool {
@@ -493,14 +501,14 @@ impl Node {
     }
 
     pub fn is_chance_node(&self) -> bool {
-        self.is_end_turn()
+        self.is_roll()
             || self.is_initial_final()
             || self.parent_action == Action::BuyDevCard(Unknown)
     }
 
     pub fn choose_child(&self, rng: &mut GameRng) -> NodeRef {
         let first = self.first_child.0;
-        if self.is_end_turn() || self.is_initial_final() {
+        if self.is_roll() {
             NodeRef(first + rng.random_range(0..6) + rng.random_range(0..6))
         } else if self.parent_action == Action::BuyDevCard(Unknown) {
             // TODO: this allocates, make a custom one that doesn't?
@@ -515,6 +523,11 @@ impl Node {
         if self.state.is_initial() {
             self.available_actions
                 .select_random_untried_initial_action(rng, self.state.is_initial_settle())
+        } else if !self.state.current_player().rolled
+            && self.parent_action.forced_continuation().is_none()
+        {
+            self.available_actions
+                .select_random_untried_end_turn_action(rng)
         } else {
             self.available_actions
                 .select_random_untried_action(rng, self.parent_action)
