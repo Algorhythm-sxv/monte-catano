@@ -92,13 +92,12 @@ impl Game {
     pub fn simulate(&mut self, mut state: GameState, mut last_action: Action) -> Player {
         if state.is_initial() {
             while state.is_initial() {
-                let mut actions = if state.is_initial_settle() {
+                let actions = if state.is_initial_settle() {
                     state.generate_initial_settles()
                 } else {
                     state.generate_initial_roads()
                 };
-                let action = actions
-                    .select_random_untried_initial_action(&mut self.rng, state.is_initial_settle());
+                let action = self.select_best_of_n(&state, &actions, BEST_OF_N, last_action);
                 state.apply_action(&self.board, action, &mut self.rng);
                 last_action = action;
             }
@@ -112,7 +111,7 @@ impl Game {
         }
         while !state.is_terminal() {
             let mut actions = state.generate_actions(&self.board, last_action);
-            let action = self.select_best_of_n(&state, &actions, 5, last_action);
+            let action = self.select_best_of_n(&state, &actions, BEST_OF_N, last_action);
             actions.remove(action);
             state.apply_action(&self.board, action, &mut self.rng);
             last_action = action;
@@ -182,20 +181,6 @@ impl Game {
                 };
                 state.apply_action(&self.board, action, &mut self.rng);
                 last_action = action;
-                if action == Action::EndTurn {
-                    let roll = self.rng.random_range(1..=6) + self.rng.random_range(1..=6);
-                    state.apply_action(&self.board, Action::Roll(roll as u8), &mut self.rng);
-                    if roll == 7 {
-                        let mut robbers = state.generate_robber_moves();
-                        let robber = robbers.select_random_untried_robber_action(&mut self.rng);
-                        state.apply_action(&self.board, robber, &mut self.rng);
-                        if let Action::MoveRobber(spot) = robber {
-                            let mut steals = state.generate_steals(spot);
-                            let steal = steals.select_random_untried_steal_action(&mut self.rng);
-                            state.apply_action(&self.board, steal, &mut self.rng);
-                        }
-                    }
-                }
             }
             let winner = state
                 .players
@@ -228,6 +213,13 @@ impl Game {
         let mut best_action = Action::NONE;
         let mut best_score = 0;
         for _ in 0..n {
+            // TODO: move this to make the logic nicer
+            let last_action =
+                if !state.current_player().rolled && last_action.forced_continuation().is_none() {
+                    Action::EndTurn
+                } else {
+                    last_action
+                };
             let action = if state.is_initial() {
                 temp.select_random_untried_initial_action(&mut self.rng, state.is_initial_settle())
             } else {
