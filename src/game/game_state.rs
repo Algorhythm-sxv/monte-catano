@@ -633,37 +633,54 @@ impl GameState {
     }
 
     /// Heuristic score for move selection during playouts
-    pub fn score_for(&self, board: &Board, player: u8) -> u32 {
+    pub fn heuristic_score(&self, board: &Board, player: u8) -> u32 {
         let mut score = 0;
 
         let p = self.players[player as usize];
 
         // value VPs highly
-        score += 1000 * p.vps as u32;
+        score += 10000 * p.vps as u32;
 
-        // TODO: choose ports?
-
-        // choose settles based on production
+        // score settles based on production, penalise having the robber on your spot
         let mut pips = 0;
         let mut villages = p.villages;
         while villages != 0 {
             let v = villages.trailing_zeros() as usize;
-            for h in VERTEX_HEXES[v] {
-                pips += PIPS[*board.numbers.get(h).unwrap_or(&0) as usize];
+            for h in VERTEX_HEXES[v]
+                .iter()
+                .filter(|v| **v != self.robber as usize)
+            {
+                pips += PIPS[*board.numbers.get(*h).unwrap_or(&0) as usize];
             }
             villages &= villages - 1;
         }
         let mut cities = p.cities;
         while cities != 0 {
             let v = cities.trailing_zeros() as usize;
-            for h in VERTEX_HEXES[v] {
-                pips += 2 * PIPS[*board.numbers.get(h).unwrap_or(&0) as usize];
+            for h in VERTEX_HEXES[v]
+                .iter()
+                .filter(|v| **v != self.robber as usize)
+            {
+                pips += 2 * PIPS[*board.numbers.get(*h).unwrap_or(&0) as usize];
             }
             cities &= cities - 1;
         }
-        score += pips as u32;
+        score += 100 * pips as u32;
+
+        // prefer longer roads
+        score += p.longest_road as u32;
+
+        // reward having at least one port
+        let has_port = PORT_VERTICES
+            .iter()
+            .any(|[v1, v2]| (p.villages | p.cities) & (1 << v1 | 1 << v2) != 0);
+        score += 50 * has_port as u32;
 
         score
+    }
+
+    pub fn heuristic_score_next(&self, _board: &Board, _player: u8) -> u32 {
+        0
     }
 }
 
