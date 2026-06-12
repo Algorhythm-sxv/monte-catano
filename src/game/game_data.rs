@@ -89,15 +89,28 @@ impl Game {
         self.rng.random_range(1..=6) + self.rng.random_range(1..=6)
     }
 
+    pub fn single_action(&mut self) -> Option<Action> {
+        let last = if !self.state.is_initial()
+            && !self.state.current_player().rolled
+            && self.last_action().forced_continuation().is_none()
+        {
+            Action::EndTurn
+        } else {
+            self.last_action()
+        };
+        let mut actions = self.state.generate_actions(&self.board, last);
+        if actions.len() == 1 {
+            Some(actions.select_random_untried_action(self.rng(), last))
+        } else {
+            None
+        }
+    }
+
     pub fn simulate(&mut self, mut state: GameState, mut last_action: Action) -> Player {
         if state.is_initial() {
             while state.is_initial() {
-                let actions = if state.is_initial_settle() {
-                    state.generate_initial_settles()
-                } else {
-                    state.generate_initial_roads()
-                };
-                let action = self.select_best_of_n(&state, &actions, BEST_OF_N, last_action);
+                let actions = state.generate_actions(&self.board, last_action);
+                let action = self.select_best_of_n(&state, &actions, BEST_OF_N, last_action, true);
                 state.apply_action(&self.board, action, &mut self.rng);
                 last_action = action;
             }
@@ -111,7 +124,7 @@ impl Game {
         }
         while !state.is_terminal() {
             let mut actions = state.generate_actions(&self.board, last_action);
-            let action = self.select_best_of_n(&state, &actions, BEST_OF_N, last_action);
+            let action = self.select_best_of_n(&state, &actions, BEST_OF_N, last_action, true);
             actions.remove(action);
             state.apply_action(&self.board, action, &mut self.rng);
             last_action = action;
@@ -148,19 +161,18 @@ impl Game {
 
             if state.is_initial() {
                 while state.is_initial() {
-                    let mut actions = if state.is_initial_settle() {
+                    let actions = if state.is_initial_settle() {
                         state.generate_initial_settles()
                     } else {
                         state.generate_initial_roads()
                     };
-                    let action = if state.current_player == heuristic_player {
-                        self.select_best_of_n(&state, &actions, BEST_OF_N, last_action)
-                    } else {
-                        actions.select_random_untried_initial_action(
-                            &mut self.rng,
-                            state.is_initial_settle(),
-                        )
-                    };
+                    let action = self.select_best_of_n(
+                        &state,
+                        &actions,
+                        BEST_OF_N,
+                        last_action,
+                        state.current_player == heuristic_player,
+                    );
                     state.apply_action(&self.board, action, &mut self.rng);
                     last_action = action;
                 }
@@ -173,12 +185,14 @@ impl Game {
                 debug_assert!(state.current_player == 0);
             }
             while !state.is_terminal() {
-                let mut actions = state.generate_actions(&self.board, last_action);
-                let action = if state.current_player == heuristic_player {
-                    self.select_best_of_n(&state, &actions, BEST_OF_N, last_action)
-                } else {
-                    actions.select_random_untried_action(&mut self.rng, last_action)
-                };
+                let actions = state.generate_actions(&self.board, last_action);
+                let action = self.select_best_of_n(
+                    &state,
+                    &actions,
+                    BEST_OF_N,
+                    last_action,
+                    state.current_player == heuristic_player,
+                );
                 state.apply_action(&self.board, action, &mut self.rng);
                 last_action = action;
             }
@@ -208,12 +222,14 @@ impl Game {
         actions: &Actions,
         n: usize,
         last_action: Action,
+        extended: bool,
     ) -> Action {
         let mut temp = *actions;
         let mut best_action = Action::NONE;
         let mut best_score = 0;
         for _ in 0..n {
             // TODO: move this to make the logic nicer
+            // make sure rolls are selected correctly before the main turn starts
             let last_action =
                 if !state.current_player().rolled && last_action.forced_continuation().is_none() {
                     Action::EndTurn
@@ -228,7 +244,8 @@ impl Game {
             let player = state.current_player;
             let mut new_state = *state;
             new_state.apply_action(&self.board, action, &mut self.rng);
-            let score = new_state.score_for(&self.board, player);
+            let score = new_state.heuristic_score(&self.board, player)
+                + extended as u32 * new_state.heuristic_score_next(&self.board, player);
             if score > best_score {
                 best_score = score;
                 best_action = action;

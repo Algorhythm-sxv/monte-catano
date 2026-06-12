@@ -30,29 +30,33 @@ fn main() {
                 PLAYOUTS.store(0, Ordering::Relaxed);
                 STOP_SEARCH.store(false, Ordering::Relaxed);
 
-                let new = game.clone();
-                let search = thread::spawn(move || search_thread(new));
-                let mut prev_playouts = 0;
+                let best_move = if let Some(m) = game.single_action() {
+                    m
+                } else {
+                    let new = game.clone();
+                    let search = thread::spawn(move || search_thread(new));
+                    let mut prev_playouts = 0;
 
-                for _ in 0..5 {
-                    thread::sleep(Duration::from_secs(1));
-                    let playouts = PLAYOUTS.load(Ordering::Relaxed);
-                    let diff = playouts - prev_playouts;
-                    prev_playouts = playouts;
-                    print!("\rPlayouts: {}, P/s: {}             ", playouts, diff);
-                    let _ = std::io::stdout().flush();
-                }
-                println!();
+                    for _ in 0..5 {
+                        thread::sleep(Duration::from_secs(1));
+                        let playouts = PLAYOUTS.load(Ordering::Relaxed);
+                        let diff = playouts - prev_playouts;
+                        prev_playouts = playouts;
+                        print!("\rPlayouts: {}, P/s: {}             ", playouts, diff);
+                        let _ = std::io::stdout().flush();
+                    }
+                    println!();
 
-                STOP_SEARCH.store(true, Ordering::Relaxed);
-                let mcts = search.join().unwrap();
+                    STOP_SEARCH.store(true, Ordering::Relaxed);
+                    let mcts = search.join().unwrap();
 
-                mcts.list_moves();
-                let best_move = mcts.best_move();
+                    mcts.list_moves();
+                    mcts.best_move()
+                };
 
                 let determined_action = game.apply_action(best_move);
 
-                println!("{:?} -> {:?}\n", best_move, determined_action);
+                println!("P{} {:?} -> {:?}\n", game.current_state().current_player, best_move, determined_action);
             }
 
             println!("{:?}", game.scores());

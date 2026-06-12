@@ -107,6 +107,10 @@ impl Actions {
         }
     }
 
+    pub fn len(&self) -> usize {
+        self.bitflags.count_ones() as usize
+    }
+
     pub fn is_empty(&self) -> bool {
         *self == Self::default()
     }
